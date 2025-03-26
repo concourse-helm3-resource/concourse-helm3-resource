@@ -89,6 +89,7 @@ resource_types:
 -   `aws.role.session_name` _Optional._ Session name of the assume-role session
 -   `aws.user.access_key_id` _Optional._ Access key id of the user credential used for EKS authentication
 -   `aws.user.secret_access_key` _Optional._ Secret access key of the user credential used for EKS authentication
+-   `aws.user.role_arn` _Optional._ If this is provided, we will use the user credentials to assume into the role
 
 ## Behavior
 

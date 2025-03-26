@@ -137,13 +137,14 @@ setup_aws_kubernetes() {
 
     access_key_id=$(jq -r '.source.aws.user.access_key_id // ""' < $payload)
     secret_access_key=$(jq -r '.source.aws.user.secret_access_key // ""' < $payload)
+    role_arn=$(jq -r '.source.aws.user.role_arn // ""' < $payload)
 
     if [ -z "$access_key_id" ] || [ -z "$secret_access_key" ]; then
       echo "invalid user auth payload for AWS EKS, please pass all required params"
       exit 1
     fi
 
-    # user credentail will be persisted on the disk under a specific profile
+    # user credentials will be persisted on the disk under a specific profile
     # in order to call `aws eks get-token`
     mkdir -p ~/.aws
     echo "[${profile:-default}]
@@ -151,7 +152,17 @@ setup_aws_kubernetes() {
     aws_secret_access_key=${secret_access_key}
     region=${region}" > ~/.aws/credentials
 
-    aws eks update-kubeconfig --region ${region} --name ${cluster_name} ${profile_opt}
+    # If the role arn is provided, we will create a separate profile for the role.
+    if [ -n "$role_arn" ]; then
+      echo "[assume_role]
+      role_arn=${role_arn}
+      source_profile=${profile:-default}" >> ~/.aws/credentials
+
+      aws eks update-kubeconfig --region ${region} --name ${cluster_name} --profile assume_role
+    else
+      aws eks update-kubeconfig --region ${region} --name ${cluster_name} ${profile_opt}
+    fi
+
   else
     # defaults to use instance identity.
     echo "no role or user specified. Fallback to use identity of the instance e.g. instance profile) to set up kubeconfig"
