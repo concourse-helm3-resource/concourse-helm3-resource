@@ -90,6 +90,7 @@ fi
 
 helm_registry_login() {
   ecr=$(jq -r '.params.private_registry|has("ecr")' < $payload)
+  generic=$(jq -r '.params.private_registry|has("generic")' < $payload)
   if [ "${ecr}" = true ]; then
     region=$(jq -r '.params.private_registry.ecr.region // ""' < $payload)
     account_id=$(jq -r '.params.private_registry.ecr.account_id // ""' < $payload)
@@ -153,6 +154,12 @@ helm_registry_login() {
       aws ecr get-login-password --region ${region} ${profile_opt} | helm registry login --username AWS --password-stdin ${account_id}.dkr.ecr.${region}.amazonaws.com
     fi
     echo "done logging in to ECR"
+  elif  [ "${generic}" = true ]; then
+    registry_host=$(jq -r '.params.private_registry.generic.host // ""' < $payload)
+    registry_username=$(jq -r '.params.private_registry.generic.username // ""' < $payload)
+    registry_password=$(jq -r '.params.private_registry.generic.password // ""' < $payload)
+    echo "$registry_password" | helm registry login $registry_host --username $registry_username --password-stdin
+    echo "done logging in to generic registry"
   else
     # implement support for other helm registry following a similar pattern
     echo "unsupported private reigistry configuration"
