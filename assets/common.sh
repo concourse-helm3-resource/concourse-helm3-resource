@@ -197,7 +197,7 @@ setup_gcp_kubernetes() {
       echo "service acccount $gcloud_service_account_key_file is passed as a file"
       gcloud_path="$gcloud_service_account_key_file"
     else
-      echo "$gcloud_service_account_key_file" >> /gcloud.json
+      echo "$gcloud_service_account_key_file" > /gcloud.json
       gcloud_path="/gcloud.json"
     fi
     
