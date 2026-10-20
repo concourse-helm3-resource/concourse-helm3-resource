@@ -11,13 +11,15 @@ ARG GCLOUD_VERSION=590.0.0
 ARG DOCTL_VERSION=1.57.0
 ARG AWSCLI_VERSION=2.34.63-r0
 ARG HELM_DIFF_VERSION=3.15.15
+# helm-diff release signing key: https://github.com/databus23/helm-diff#helm-4
+ARG HELM_DIFF_KEY_FINGERPRINT=C5645EF47482257A1F806D2BEA17A2A206AFF8CD
 
 
 #gcloud path
 ENV PATH $PATH:/usr/local/gcloud/google-cloud-sdk/bin
 
 #install packages
-RUN apk add --update --upgrade --no-cache jq bash curl git gettext libintl py-pip aws-cli=${AWSCLI_VERSION}
+RUN apk add --update --upgrade --no-cache jq bash curl git gettext gnupg libintl py-pip aws-cli=${AWSCLI_VERSION}
 
 #install kubectl
 RUN curl -fsSL -o /usr/local/bin/kubectl https://dl.k8s.io/release/v${KUBERNETES_VERSION}/bin/linux/amd64/kubectl && \
@@ -43,8 +45,12 @@ RUN mkdir -p /usr/local/gcloud \
 ADD assets /opt/resource
 
 #install plugins
-# Helm 4 verifies plugin signatures by default; helm-diff is installed from its VCS repo, which has no .prov to verify
-RUN helm plugin install --verify=false --version v${HELM_DIFF_VERSION} https://github.com/databus23/helm-diff
+# Helm 4 verifies plugin signatures; install the signed release tarball against the pinned maintainer key
+RUN curl -fsSL https://github.com/databus23.gpg | gpg --dearmor > /tmp/helm-diff.gpg && \
+  gpg --show-keys --with-colons /tmp/helm-diff.gpg | grep -q "^fpr:::::::::${HELM_DIFF_KEY_FINGERPRINT}:" && \
+  helm plugin install --keyring /tmp/helm-diff.gpg \
+    https://github.com/databus23/helm-diff/releases/download/v${HELM_DIFF_VERSION}/diff-${HELM_DIFF_VERSION}-linux-amd64.tgz && \
+  rm /tmp/helm-diff.gpg
 
 #install kustomize
 RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash && \
