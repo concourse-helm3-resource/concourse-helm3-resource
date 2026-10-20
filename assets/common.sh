@@ -234,7 +234,7 @@ setup_helm() {
   helm_setup_purge_all=$(jq -r '.source.helm_setup_purge_all // "false"' <$1)
   if [ "$helm_setup_purge_all" = "true" ]; then
     local release
-    for release in $(helm ls -aq --namespace $namespace )
+    for release in $(helm ls -q --namespace $namespace )
     do
       helm uninstall "$release" --namespace $namespace
     done
@@ -258,7 +258,8 @@ wait_for_service_up() {
 setup_repos() {
   repos=$(jq -c '(try .source.repos[] catch [][])' < $1)
   plugins=$(jq -c '(try .source.plugins[] catch [][])' < $1)
-  stable_repo=$(jq -r '.source.stable_repo // "https://charts.helm.sh/stable"' < $1 )
+  stable_repo=$(jq -r '.source.stable_repo // "false"' < $1 )
+  repos_refreshed="false"
 
   local IFS=$'\n'
 
@@ -267,14 +268,15 @@ setup_repos() {
     for pl in $plugins; do
       plurl=$(echo $pl | jq -cr '.url')
       plversion=$(echo $pl | jq -cr '.version // ""')
+      plverify=$(echo $pl | jq -cr '.verify // false')
+      plugin_args=("--verify=$plverify")
       if [ -n "$plversion" ]; then
-        $helm_bin plugin install $plurl --version $plversion
+        plugin_args+=("--version" "$plversion")
+      fi
+      if [ -d $2/$plurl ]; then
+        $helm_bin plugin install "${plugin_args[@]}" $2/$plurl
       else
-        if [ -d $2/$plurl ]; then
-          $helm_bin plugin install $2/$plurl
-        else
-          $helm_bin plugin install $plurl
-        fi
+        $helm_bin plugin install "${plugin_args[@]}" $plurl
       fi
     done
   fi
@@ -294,13 +296,16 @@ setup_repos() {
         $helm_bin repo add $name $url
       fi
     done
-
-    $helm_bin repo update
   fi
 
   if [ ! "$stable_repo" == "false" ]; then
     $helm_bin repo add stable $stable_repo
-    $helm_bin repo update
+  fi
+
+  # `repo add` downloads each index into a fresh cache, so a `repo update` here
+  # (or the refresh `dependency update` does by default) fetches them all again.
+  if [ "$repos" ] || [ ! "$stable_repo" == "false" ]; then
+    repos_refreshed="true"
   fi
 }
 

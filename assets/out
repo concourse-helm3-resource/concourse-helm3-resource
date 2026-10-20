@@ -25,7 +25,7 @@ chart=$(jq -r '.params.chart // ""' < $payload)
 version=$(jq -r '.params.version // ""' < $payload)
 namespace_overwrite=$(jq -r '.params.namespace // ""' < $payload)
 create_namespace=$(jq -r '.params.create_namespace // "false"' < $payload)
-atomic=$(jq -r '.params.atomic // "false"' < $payload)
+rollback_on_failure=$(jq -r '.params.rollback_on_failure // .params.atomic // "false"' < $payload)
 release_overwrite=$(jq -r '.params.release // ""' < $payload)
 values=$(jq -r '.params.values // "" | if type == "array" then .[] else . end' < $payload)
 debug=$(jq -r '.params.debug // "false"' < $payload)
@@ -35,7 +35,9 @@ delete_namespace=$(jq -r '.params.delete_namespace // "false"' < $payload)
 test=$(jq -r '.params.test // "false"' < $payload)
 test_logs=$(jq -r '.params.test_logs // "false"' < $payload)
 devel=$(jq -r '.params.devel // "false"' < $payload)
-force=$(jq -r '.params.force // "false"' < $payload)
+force_replace=$(jq -r '.params.force_replace // .params.force // "false"' < $payload)
+server_side=$(jq -r '.params.server_side // ""' < $payload)
+force_conflicts=$(jq -r '.params.force_conflicts // "false"' < $payload)
 show_diff=$(jq -r '.params.show_diff // "false"' < $payload)
 diff_opts=$(jq -r '.params.diff_opts // ""' < $payload)
 post_renderer=$(jq -r '.params.post_renderer // ""' < $payload)
@@ -44,6 +46,7 @@ reset_values=$(jq -r '.params.reset_values // "false"' < $payload)
 wait=$(jq -r '.params.wait // 0' < $payload)
 check_is_ready=$(jq -r '.params.check_is_ready // "false"' < $payload)
 wait_for_jobs=$(jq -r '.params.wait_for_jobs // "false"' < $payload)
+wait_strategy=$(jq -r '.params.wait_strategy // "watcher"' < $payload)
 timeout=$(jq -r '.params.timeout // "5m0s"' < $payload)
 skip_missing_values=$(jq -r '.params.skip_missing_values // "false"' < $payload)
 
@@ -65,6 +68,39 @@ fi
 if [[ "$uninstall" == "true" ]] && [[ "$replace" == "true" ]] ; then
   echo "invalid payload ( uninstall and replace cannot both be true )"
   exit 1
+fi
+
+if [ -n "$server_side" ] && [[ ! "$server_side" =~ ^(true|false|auto)$ ]] ; then
+  echo "invalid payload ( server_side must be \"true\", \"false\" or \"auto\" )"
+  exit 1
+fi
+
+if [[ "$force_conflicts" == "true" ]] && [[ "$server_side" == "false" ]] ; then
+  echo "invalid payload ( force_conflicts requires server-side apply )"
+  exit 1
+fi
+
+# Helm 4 can only force-replace with a client-side apply
+if [[ "$force_replace" == "true" ]] ; then
+  if [ -z "$server_side" ] ; then
+    server_side="false"
+  elif [[ "$server_side" != "false" ]] ; then
+    echo "invalid payload ( force_replace requires server_side to be \"false\" )"
+    exit 1
+  fi
+fi
+
+if [[ ! "$wait_strategy" =~ ^(watcher|legacy)$ ]] ; then
+  echo "invalid payload ( wait_strategy must be \"watcher\" or \"legacy\" )"
+  exit 1
+fi
+
+if jq -e '.params | has("atomic")' < $payload > /dev/null; then
+  echo "WARNING: params.atomic is deprecated, use params.rollback_on_failure"
+fi
+
+if jq -e '.params | has("force")' < $payload > /dev/null; then
+  echo "WARNING: params.force is deprecated, use params.force_replace"
 fi
 
 if [ -f "$source/$namespace_overwrite" ]; then
@@ -197,8 +233,41 @@ set_overridden_values() {
 
 current_deployed() {
   local release="$1"
-  # The rest LGTM but we need --max 20 to get the last DEPLOYED release and not end up with a rolled back release being the last one.
-  $helm_bin history --max 20 $release --namespace $namespace | grep -i "DEPLOYED"
+  # --max 20 to get the last deployed release and not end up with a rolled back release being the last one.
+  $helm_bin history --max 20 $release --namespace $namespace --output json | jq -c '[.[] | select(.status == "deployed")] | last'
+}
+
+# Helm 4 only accepts a plugin name for --post-renderer. A path to an executable
+# is wrapped in a local postrenderer plugin so existing pipelines keep working.
+setup_post_renderer() {
+  post_renderer_plugin=""
+  if [ -z "$post_renderer" ]; then
+    return
+  fi
+
+  if [ -f "$chart_full/$post_renderer" ]; then
+    local post_renderer_path="$chart_full/$post_renderer"
+    chmod +x "$post_renderer_path"
+
+    local plugin_dir
+    plugin_dir="$(mktemp -d)/concourse-post-renderer"
+    mkdir -p "$plugin_dir"
+    cat > "$plugin_dir/plugin.yaml" <<EOF
+apiVersion: v1
+name: concourse-post-renderer
+type: postrenderer/v1
+runtime: subprocess
+version: 1.0.0
+runtimeConfig:
+  platformCommand:
+    - command: $post_renderer_path
+EOF
+    $helm_bin plugin install "$plugin_dir"
+    post_renderer_plugin="concourse-post-renderer"
+  else
+    # Not a file in the chart: treat it as the name of an installed postrenderer plugin.
+    post_renderer_plugin="$post_renderer"
+  fi
 }
 
 helm_upgrade() {
@@ -234,19 +303,19 @@ helm_upgrade() {
   fi
 
   if [ "$wait_for_jobs" == "true" ]; then
-    upgrade_args+=("--wait")
+    upgrade_args+=("--wait=$wait_strategy")
     upgrade_args+=("--wait-for-jobs")
   elif [ "$check_is_ready" == "true" ]; then
-    upgrade_args+=("--wait")    
+    upgrade_args+=("--wait=$wait_strategy")
   fi
 
-  if [ "$atomic" == "true" ]; then
-    upgrade_args+=("--atomic")
+  if [ "$rollback_on_failure" == "true" ]; then
+    upgrade_args+=("--rollback-on-failure")
   fi
 
   if [ "$debug" == "true" ]; then
     upgrade_args+=("--debug")
-    upgrade_args+=("--dry-run")
+    upgrade_args+=("--dry-run=client")
   fi
 
   if [ -n "$version" ]; then
@@ -261,13 +330,23 @@ helm_upgrade() {
     upgrade_args+=("--cleanup-on-fail")
   fi
 
-  if [ "$force" == "true" ]; then
-    upgrade_args+=("--force")
+  if [ "$force_replace" == "true" ]; then
+    upgrade_args+=("--force-replace")
   fi
 
-  if [ -n "$post_renderer" ]; then
-    upgrade_args+=("--post-renderer" "$chart_full/$post_renderer")
-    upgrade_diff_args+=("--post-renderer" "$chart_full/$post_renderer")
+  if [ -n "$server_side" ]; then
+    upgrade_args+=("--server-side=$server_side")
+    upgrade_diff_args+=("--server-side=$server_side")
+  fi
+
+  if [ "$force_conflicts" == "true" ]; then
+    upgrade_args+=("--force-conflicts")
+  fi
+
+  setup_post_renderer
+  if [ -n "$post_renderer_plugin" ]; then
+    upgrade_args+=("--post-renderer" "$post_renderer_plugin")
+    upgrade_diff_args+=("--post-renderer" "$post_renderer_plugin")
   fi
 
   if [ "$reuse_values" == "true" ]; then
@@ -301,9 +380,18 @@ helm_upgrade() {
 
   if [[ -d "$chart_full" ]]; then
     helm_depup_args=("dependency" "update" "$chart_full")
-    helm_depup_echo_args=("dependency" "update" "$chart_full")
-    echo "Running command helm ${helm_depup_echo_args[@]}"
-    $helm_bin "${helm_depup_args[@]}" | tee "$logfile"
+    # setup_repos just downloaded every configured index, so skip the refresh. That
+    # fails when a dependency points at a repo that was never added, so fall back.
+    if [ "$repos_refreshed" == "true" ]; then
+      echo "Running command helm ${helm_depup_args[@]} --skip-refresh"
+      if ! $helm_bin "${helm_depup_args[@]}" --skip-refresh | tee "$logfile"; then
+        echo "Retrying with a repository refresh"
+        $helm_bin "${helm_depup_args[@]}" | tee "$logfile"
+      fi
+    else
+      echo "Running command helm ${helm_depup_args[@]}"
+      $helm_bin "${helm_depup_args[@]}" | tee "$logfile"
+    fi
   fi
 
   if [ "$show_diff" = true ] ; then
@@ -402,8 +490,8 @@ else
       release=$deployed_release
     fi
     deployed=$(current_deployed "$release")
-    revision=$(echo $deployed | awk '{ print $1 }')
-    chart=$(echo $deployed | awk '{ print $8 }')
+    revision=$(echo "$deployed" | jq -r '.revision')
+    chart=$(echo "$deployed" | jq -r '.chart')
     echo "Deployed revision $revision of $release"
     result="$(jq -n "{version:{release:\"$release\", revision:\"$revision\"}, metadata: [{name: \"release\", value: \"$release\"},{name: \"revision\", value: \"$revision\"},{name: \"chart\", value: \"$chart\"}]}")"
     echo "$result" | jq -s add  >&3

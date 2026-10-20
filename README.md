@@ -8,6 +8,7 @@ Heavily based on the work of [`linkyard/concourse-helm-resource`](https://github
 
 ## IMPORTANT NOTES
 
+- Version 2.0.0 ships Helm 4. See [Upgrading to 2.0.0](#upgrading-to-200) before bumping a pipeline.
 - Version 1.25.0 expects `cluster_ca` in base64 format in a new parameter called `cluster_ca_base64`. `cluster_ca` can still be used if a plain certificate is passed.
 - Version 1.21.0 to 1.24.2 seems to be broken for certain uses cases. See [Issue#83](https://github.com/Typositoire/concourse-helm3-resource/issues/83)
 - Version 1.21.0 to 1.24.2 seems to be missing helm diff plugin due to the use of HELM_PLUGINS environment variable
@@ -38,7 +39,35 @@ resource_types:
   type: docker-image
   source:
     repository: ghcr.io/typositoire/concourse-helm3-resource
+    tag: v2.0.0
 ```
+
+## Upgrading to 2.0.0
+
+2.0.0 moves the image from Helm 3.14 to Helm 4.3. Pin `tag` to a 1.x version to stay on Helm 3.
+
+- **Server-side apply.** New installs use server-side apply. Releases created by Helm 3 keep
+  client-side apply until you set `server_side: "true"`; after one such deploy, later deploys
+  stay server-side by default. The Kubernetes API server then merges each object itself, which
+  removes one round trip per object.
+- **Field conflicts.** Under server-side apply, a deploy fails if it changes a field another
+  manager owns, for example a replica count set by `kubectl scale`. Set `force_conflicts: true`
+  to let Helm take those fields. Moving a Helm 3 release over does not need it: Helm 4 uses the
+  same `helm` field manager.
+- **Renamed params.** `atomic` is now `rollback_on_failure` and `force` is now `force_replace`.
+  The old names still work and log a deprecation warning. `force_replace` needs client-side
+  apply, so it sets `server_side: "false"` unless you pass it yourself.
+- **Waiting.** `check_is_ready` and `wait_for_jobs` wait with Helm 4's `watcher` strategy
+  (kstatus). Set `wait_strategy: legacy` to get Helm 3's readiness checks.
+- **Stable repo.** `stable_repo` now defaults to `"false"`. The archived `stable` repo has a
+  10 MB index that was downloaded several times on every put. Set `stable_repo` to its URL if
+  a chart still depends on it.
+- **Plugins.** Helm 4 verifies plugin signatures by default, which fails for plugins installed
+  from a Git repository. `plugins` entries now install with `verify: false` unless you set
+  `verify: true`.
+- **Post-renderers.** Helm 4 only runs post-renderers packaged as plugins. A `post_renderer`
+  path to an executable in the chart still works: the resource wraps it in a plugin. Any other
+  value is treated as the name of an installed postrenderer plugin.
 
 ## Source Configuration
 
@@ -55,8 +84,8 @@ resource_types:
 -   `namespace`: _Optional._ Kubernetes namespace the chart will be installed into. (Default: default)
 -   `helm_history_max`: _Optional._ Limits the maximum number of revisions. Use 0 for no limit. (Default: 10)
 -   `repos`: _Optional._ Array of Helm repositories to initialize, each repository is defined as an object with properties `name`, `url` (required) username and password (optional).
--   `plugins`: _Optional._ Array of Helm plugins to install, each defined as an object with properties `url` (required), `version` (optional).
--   `stable_repo`: _Optional_ A `"false"` (must be "string" not boolean) value will disable using a default Helm stable repo. Any other value will be used to Override default Helm stable repo URL <https://charts.helm.sh/stable>. Useful if running helm deploys without internet access.
+-   `plugins`: _Optional._ Array of Helm plugins to install, each defined as an object with properties `url` (required), `version` (optional) and `verify` (optional, verify the plugin signature, default: false).
+-   `stable_repo`: _Optional_ URL of a Helm stable repo to add as `stable`, e.g. <https://charts.helm.sh/stable>. (Default: `"false"`, no stable repo)
 -   `tracing_enabled`: _Optional._ Enable extremely verbose tracing for this resource. Useful when developing the resource itself. May allow secrets to be displayed. (Default: false)
 -   `helm_setup_purge_all`: _Optional._ Uninstalls and purge every helm release. Use with extreme caution. (Default: false)
   - `env_vars`: _Optional._ A key/value pair of environment variables that will be set before running the helm command. This is useful for using different Helm storage options.
@@ -97,7 +126,7 @@ resource_types:
 
 ### `in`: Not Supported
 
-### `out`: Deploy a helm chart (V3 only)
+### `out`: Deploy a helm chart
 
 Deploy an helm chart
 
@@ -130,13 +159,18 @@ Deploy an helm chart
 -   `uninstall`: _Optional._ Uninstalls the release instead of installing it. Requires the `release`. (Default: false)
 -   `delete_namespace`: _Optional._ Deletes the namespace after uninstall. Requires `uninstall` set to true and `namespace`. (Default: false)
 -   `replace`: _Optional._ Replace uninstall release with same name. (Default: false)
--   `force`: _Optional._ Force resource update through uninstall/recreate if needed. (Default: false)
+-   `force_replace`: _Optional._ Force resource updates by replacement. Requires client-side apply, so `server_side` defaults to `"false"` when this is set. (Default: false)
+-   `force`: _Deprecated._ Alias for `force_replace`.
+-   `server_side`: _Optional._ `"true"`, `"false"` or `"auto"`. Apply objects with server-side apply. `"auto"` uses whatever the release used last time. (Default: Helm's, which is `"auto"` on upgrade and server-side on a new install)
+-   `force_conflicts`: _Optional._ With server-side apply, take ownership of fields another field manager owns instead of failing. (Default: false)
 -   `devel`: _Optional._ Allow development versions of chart to be installed. This is useful when wanting to install pre-release
     charts (i.e. 1.0.2-rc1) without having to specify a version. (Default: false)
 -   `debug`: _Optional._ Dry run the helm install with the debug flag which logs interpolated chart templates. (Default: false)
 -   `check_is_ready`: _Optional._ Requires that `wait` is set to Default. Applies --wait without timeout. (Default: false)
 -   `wait_for_jobs`: _Optional._ Requires that `wait` is set to Default. Applies --wait and --wait-for-jobs without timeout. (Default: false)
--   `atomic`: _Optional._ This flag will cause failed installs to purge the release, and failed upgrades to rollback to the previous release. (Default: false)
+-   `wait_strategy`: _Optional._ How `check_is_ready` and `wait_for_jobs` wait: `watcher` or `legacy` (Helm 3 behaviour). (Default: watcher)
+-   `rollback_on_failure`: _Optional._ Failed installs are uninstalled and failed upgrades roll back to the previous release. (Default: false)
+-   `atomic`: _Deprecated._ Alias for `rollback_on_failure`.
 -   `reuse_values`: _Optional._ When upgrading, reuse the last release's values. (Default: false)
 -   `reset_values`: _Optional._ When upgrading, reset the values to the ones built into the chart. (Default: false)
 -   `timeout`: _Optional._ This flag sets the max time to wait for any individual Kubernetes operation. (Default: 5m0s)
@@ -145,6 +179,7 @@ Deploy an helm chart
 -   `kubeconfig_path`: _Optional._ File containing a kubeconfig. Overrides source configuration for cluster, token, and admin config.
 -   `show_diff`: _Optional._ Show the diff that is applied if upgrading an existing successful release. (Default: false)
 -   `diff_opts`: _Optional._ Additional options to be appended to `helm diff` command. (Default: "")
+-   `post_renderer`: _Optional._ Path to an executable inside the chart directory, or the name of an installed postrenderer plugin, used to post-render the manifests for the upgrade and the diff.
 -   `skip_missing_values:` _Optional._ Missing values files are skipped if they are specified in the values but do not exist.(Default false)
 
 ## Example

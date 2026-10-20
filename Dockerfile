@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 alpine/helm:3.14.4
+FROM --platform=linux/amd64 alpine/helm:4.3.1
 # Helm supported version along with K8 version: https://helm.sh/docs/topics/version_skew/
 # List of Helm images: https://hub.docker.com/r/alpine/helm/tags
 
@@ -6,11 +6,11 @@ LABEL maintainer="Yann David (@Typositoire) <davidyann88@gmail>"
 
 # Versions for gcloud, kubectl, doctl, awscli
 # K8 versions: https://kubernetes.io/releases/
-ARG KUBERNETES_VERSION=1.29.8
-ARG GCLOUD_VERSION=416.0.0
+ARG KUBERNETES_VERSION=1.35.9
+ARG GCLOUD_VERSION=590.0.0
 ARG DOCTL_VERSION=1.57.0
-ARG AWSCLI_VERSION=2.15.14-r0
-ARG HELM_PLUGINS_TO_INSTALL="https://github.com/databus23/helm-diff"
+ARG AWSCLI_VERSION=2.34.63-r0
+ARG HELM_DIFF_VERSION=3.15.15
 
 
 #gcloud path
@@ -20,7 +20,7 @@ ENV PATH $PATH:/usr/local/gcloud/google-cloud-sdk/bin
 RUN apk add --update --upgrade --no-cache jq bash curl git gettext libintl py-pip aws-cli=${AWSCLI_VERSION}
 
 #install kubectl
-RUN curl -sL -o /usr/local/bin/kubectl https://storage.googleapis.com/kubernetes-release/release/v${KUBERNETES_VERSION}/bin/linux/amd64/kubectl; \
+RUN curl -fsSL -o /usr/local/bin/kubectl https://dl.k8s.io/release/v${KUBERNETES_VERSION}/bin/linux/amd64/kubectl && \
     chmod +x /usr/local/bin/kubectl
 
 #install gcloud
@@ -43,7 +43,8 @@ RUN mkdir -p /usr/local/gcloud \
 ADD assets /opt/resource
 
 #install plugins
-RUN for i in $(echo $HELM_PLUGINS_TO_INSTALL | xargs -n1); do helm plugin install $i; done
+# Helm 4 verifies plugin signatures by default; helm-diff is installed from its VCS repo, which has no .prov to verify
+RUN helm plugin install --verify=false --version v${HELM_DIFF_VERSION} https://github.com/databus23/helm-diff
 
 #install kustomize
 RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash && \
