@@ -46,15 +46,29 @@ resource_types:
 
 2.0.0 moves the image from Helm 3.14 to Helm 4.3. Pin `tag` to a 1.x version to stay on Helm 3.
 
-- **Server-side apply.** New installs use server-side apply. Releases created by Helm 3 keep
+- **Server-side apply.** New installs use server-side apply: the Kubernetes API server merges
+  each object itself, which removes one round trip per object. Releases created by Helm 3 keep
   client-side apply until you set `server_side: "true"`; after one such deploy, later deploys
   stay server-side by default. Keep `server_side: "true"` set anyway: if a 1.x image touches the
-  release again, Helm 3 drops the record of the apply method and `auto` falls back to client-side. The Kubernetes API server then merges each object itself, which
-  removes one round trip per object.
+  release again, Helm 3 drops the record of the apply method and `auto` falls back to client-side.
 - **Field conflicts.** Under server-side apply, a deploy fails if it changes a field another
-  manager owns, for example a replica count set by `kubectl scale`. Set `force_conflicts: true`
-  to let Helm take those fields. Moving a Helm 3 release over does not need it: Helm 4 uses the
-  same `helm` field manager.
+  manager owns. That includes manual changes: after `kubectl edit`, `kubectl set resources` or
+  `kubectl scale`, the next deploy that sets a different value fails with
+  `conflict with "kubectl-edit"` (or similar) until the chart matches the live value or
+  `force_conflicts: true` is set. 1.x silently reverted such changes instead. Moving a Helm 3
+  release over does not need `force_conflicts`: Helm 4 uses the same `helm` field manager.
+
+  To keep 1.x behaviour, where the chart always wins, set both:
+
+  ```yaml
+  params:
+    server_side: "true"
+    force_conflicts: true
+  ```
+
+  One difference remains. If someone edits a field by hand and it is later removed from the
+  chart, 1.x deleted it from the live object; 2.0.0 leaves the hand-set value, because `kubectl`
+  co-owns the field. Remove it with `kubectl`.
 - **Renamed params.** `atomic` is now `rollback_on_failure` and `force` is now `force_replace`.
   The old names still work and log a deprecation warning. `force_replace` needs client-side
   apply, so it sets `server_side: "false"` unless you pass it yourself.
