@@ -48,7 +48,8 @@ resource_types:
 
 - **Server-side apply.** New installs use server-side apply. Releases created by Helm 3 keep
   client-side apply until you set `server_side: "true"`; after one such deploy, later deploys
-  stay server-side by default. The Kubernetes API server then merges each object itself, which
+  stay server-side by default. Keep `server_side: "true"` set anyway: if a 1.x image touches the
+  release again, Helm 3 drops the record of the apply method and `auto` falls back to client-side. The Kubernetes API server then merges each object itself, which
   removes one round trip per object.
 - **Field conflicts.** Under server-side apply, a deploy fails if it changes a field another
   manager owns, for example a replica count set by `kubectl scale`. Set `force_conflicts: true`
