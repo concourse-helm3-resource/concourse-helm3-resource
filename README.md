@@ -62,9 +62,9 @@ resource_types:
 - **Stable repo.** `stable_repo` now defaults to `"false"`. The archived `stable` repo has a
   10 MB index that was downloaded several times on every put. Set `stable_repo` to its URL if
   a chart still depends on it.
-- **Plugins.** Helm 4 verifies plugin signatures by default, which fails for plugins installed
-  from a Git repository. `plugins` entries now install with `verify: false` unless you set
-  `verify: true`.
+- **Plugins.** Plugins are signature-verified by default, as in Helm 4. A release tarball needs
+  `keyring` set to its signer's public key. A Git URL cannot be verified, so it fails until its
+  entry sets `verify: false`. A local plugin directory needs no signature.
 - **Post-renderers.** Helm 4 only runs post-renderers packaged as plugins. A `post_renderer`
   path to an executable in the chart still works: the resource wraps it in a plugin. Any other
   value is treated as the name of an installed postrenderer plugin.
@@ -84,7 +84,21 @@ resource_types:
 -   `namespace`: _Optional._ Kubernetes namespace the chart will be installed into. (Default: default)
 -   `helm_history_max`: _Optional._ Limits the maximum number of revisions. Use 0 for no limit. (Default: 10)
 -   `repos`: _Optional._ Array of Helm repositories to initialize, each repository is defined as an object with properties `name`, `url` (required) username and password (optional).
--   `plugins`: _Optional._ Array of Helm plugins to install, each defined as an object with properties `url` (required), `version` (optional) and `verify` (optional, verify the plugin signature, default: false).
+-   `plugins`: _Optional._ Array of Helm plugins to install on `put`, each an object with:
+    - `url` (required): a release tarball URL, a Git URL, or a plugin directory relative to the put's working directory.
+    - `version` (optional): version constraint passed to `helm plugin install --version`.
+    - `verify` (optional): verify the plugin signature (Default: true). Git URLs cannot be verified and need `false`.
+    - `keyring` (optional): the signer's public key, armored or binary, as an `https://` URL or a file relative to the put's working directory. Required to verify a release tarball.
+
+    ```yaml
+    plugins:
+    - url: https://github.com/databus23/helm-diff/releases/download/v3.15.15/diff-3.15.15-linux-amd64.tgz
+      keyring: https://github.com/databus23.gpg
+    - url: https://github.com/example/helm-foo
+      version: v1.2.0
+      verify: false
+    - url: git-repo/plugins/my-plugin
+    ```
 -   `stable_repo`: _Optional_ URL of a Helm stable repo to add as `stable`, e.g. <https://charts.helm.sh/stable>. (Default: `"false"`, no stable repo)
 -   `tracing_enabled`: _Optional._ Enable extremely verbose tracing for this resource. Useful when developing the resource itself. May allow secrets to be displayed. (Default: false)
 -   `helm_setup_purge_all`: _Optional._ Uninstalls and purge every helm release. Use with extreme caution. (Default: false)

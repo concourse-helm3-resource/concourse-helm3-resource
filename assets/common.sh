@@ -268,8 +268,19 @@ setup_repos() {
     for pl in $plugins; do
       plurl=$(echo $pl | jq -cr '.url')
       plversion=$(echo $pl | jq -cr '.version // ""')
-      plverify=$(echo $pl | jq -cr '.verify // false')
+      plverify=$(echo $pl | jq -cr 'if has("verify") then .verify else true end')
+      plkeyring=$(echo $pl | jq -cr '.keyring // ""')
       plugin_args=("--verify=$plverify")
+      if [ -n "$plkeyring" ] && [ "$plverify" != "false" ]; then
+        # The signer's public key (armored or binary), as a URL or a file in the inputs
+        keyring_path=$(mktemp)
+        if [[ "$plkeyring" =~ ^https?:// ]]; then
+          curl -fsSL "$plkeyring" -o "$keyring_path"
+        else
+          cp "$2/$plkeyring" "$keyring_path"
+        fi
+        plugin_args+=("--keyring" "$keyring_path")
+      fi
       if [ -n "$plversion" ]; then
         plugin_args+=("--version" "$plversion")
       fi
