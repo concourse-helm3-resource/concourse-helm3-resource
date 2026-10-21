@@ -8,7 +8,7 @@ LABEL maintainer="Yann David (@Typositoire) <davidyann88@gmail>"
 # K8 versions: https://kubernetes.io/releases/
 ARG KUBERNETES_VERSION=1.35.9
 ARG GCLOUD_VERSION=590.0.0
-ARG DOCTL_VERSION=1.57.0
+ARG DOCTL_VERSION=1.186.0
 ARG AWSCLI_VERSION=2.34.63-r0
 ARG HELM_DIFF_VERSION=3.15.15
 # helm-diff release signing key: https://github.com/databus23/helm-diff#helm-4
