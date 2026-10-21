@@ -1,0 +1,8 @@
+apiVersion: v1
+name: local-plugin
+type: cli/v1
+runtime: subprocess
+version: 0.1.0
+runtimeConfig:
+  platformCommand:
+    - command: /bin/true
