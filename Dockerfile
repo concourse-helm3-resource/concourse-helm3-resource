@@ -52,10 +52,6 @@ RUN curl -fsSL https://github.com/databus23.gpg | gpg --dearmor > /tmp/helm-diff
     https://github.com/databus23/helm-diff/releases/download/v${HELM_DIFF_VERSION}/diff-${HELM_DIFF_VERSION}-linux-amd64.tgz && \
   rm /tmp/helm-diff.gpg
 
-#install kustomize
-RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash && \
-  install kustomize /usr/local/bin/kustomize
-
 #install doctl
 RUN curl -sL -o /tmp/doctl.tar.gz https://github.com/digitalocean/doctl/releases/download/v${DOCTL_VERSION}/doctl-${DOCTL_VERSION}-linux-amd64.tar.gz && \
   tar -C /usr/local/bin -zxvf /tmp/doctl.tar.gz && \

@@ -69,6 +69,9 @@ resource_types:
 - **Post-renderers.** Helm 4 only runs post-renderers packaged as plugins. A `post_renderer`
   path to an executable in the chart still works: the resource wraps it in a plugin. Any other
   value is treated as the name of an installed postrenderer plugin.
+- **Kustomize.** The image no longer ships a standalone `kustomize` binary. A post-renderer
+  script that runs `kustomize build <dir>` should run `kubectl kustomize <dir>` instead, which
+  uses the kustomize built into kubectl.
 
 ## Source Configuration
 
