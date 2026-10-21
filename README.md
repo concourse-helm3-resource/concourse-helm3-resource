@@ -382,3 +382,16 @@ jobs:
       # ...
   # ...
 ```
+
+## Integration tests
+
+`make test-integration` builds the image and runs its `out` and `check` scripts against k3s,
+Postgres and a local chart repository in Docker. It needs Docker, `jq`, `curl` and network
+access to pull images and the signed helm-diff release.
+
+```sh
+make test-integration                              # every case
+test/integration/run.sh postgres                   # only cases whose name matches
+IMAGE=my/image:tag test/integration/run.sh         # test an existing image
+KEEP=1 test/integration/run.sh                     # leave the containers running
+```

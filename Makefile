@@ -5,11 +5,16 @@ VERSION = $(shell cat VERSION)
 
 all: build push
 
+.PHONY: build push test-integration run
+
 build:
 	docker build --tag ${ID}:$(VERSION) .
 
 push:
 	docker push ${ID}:$(VERSION)
+
+test-integration:
+	test/integration/run.sh
 
 run:
 	docker run \
